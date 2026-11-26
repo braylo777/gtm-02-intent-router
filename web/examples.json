@@ -1,0 +1,87 @@
+{
+  "stage": 2,
+  "repo": "gtm-02-intent-router",
+  "title": "Signal & Intent Routing",
+  "tagline": "Turn buying signals into the right rep's Slack in minutes: account-level website reveal with privacy gates, time-decayed intent scores with surge detection, and first-match routing with round-robin and dedupe.",
+  "why": "Buyers research long before they fill a form. The team that sees the signal first and routes it to one accountable owner with context wins the meeting. Most stacks fail in the plumbing: duplicate webhooks, alerts to the wrong rep, residential IPs matched to companies, stale signals treated as hot. This repo is that plumbing, with the privacy rules built in.",
+  "covers": [
+    "IPv4 CIDR matching, most-specific prefix wins; ISP / residential / VPN ranges are never matched to a company",
+    "Consent gate: visits without analytics consent are dropped before matching; output is account-level only, no person data",
+    "Intent scoring: per-signal weights, exponential decay with a half-life, 7-day surge vs 4-week baseline, route / nurture / ignore trigger",
+    "Routing: rule conditions (eq, neq, in, gte, lte, contains), first match wins, account-owner override, round-robin pools, event-id dedupe, fallback queue",
+    "Slack-style alert payload with account, signal, page, score, owner and SLA"
+  ],
+  "gaps": [
+    "No Clearbit / 6sense / Bombora connection: IP ranges and signals are synthetic JSON",
+    "IPv4 only; no IPv6 ranges",
+    "Builds the Slack payload but does not post it, and does not verify webhook signatures"
+  ],
+  "ops": [
+    {
+      "op": "reveal_accounts",
+      "label": "Account reveal",
+      "help": "Match consented visits to companies by IP range. ISP and residential ranges are excluded. All IPs are from documentation ranges.",
+      "input": {
+        "ranges": [
+          {"cidr": "198.51.100.0/24", "company": "Northwind Traders", "domain": "northwind.example"},
+          {"cidr": "203.0.113.0/25", "company": "Contoso Health", "domain": "contoso.example"},
+          {"cidr": "203.0.113.128/25", "company": "Big Residential ISP", "type": "isp"},
+          {"cidr": "192.0.2.0/24", "company": "Example VPN", "type": "vpn"}
+        ],
+        "visits": [
+          {"ip": "198.51.100.14", "session": "s1", "page": "/pricing", "consent": true},
+          {"ip": "198.51.100.14", "session": "s1", "page": "/security", "consent": true},
+          {"ip": "198.51.100.77", "session": "s2", "page": "/blog/reverse-etl", "consent": true},
+          {"ip": "203.0.113.9", "session": "s3", "page": "/docs/api", "consent": true},
+          {"ip": "203.0.113.200", "session": "s4", "page": "/pricing", "consent": true},
+          {"ip": "192.0.2.50", "session": "s5", "page": "/demo", "consent": true},
+          {"ip": "203.0.113.10", "session": "s6", "page": "/pricing", "consent": false}
+        ]
+      }
+    },
+    {
+      "op": "intent_scores",
+      "label": "Intent scores",
+      "help": "Score accounts from weighted signals that decay over time, and flag accounts surging against their own baseline.",
+      "input": {
+        "now_day": 330,
+        "half_life_days": 14,
+        "surge_multiplier": 2,
+        "min_score": 20,
+        "weights": {"pricing_page": 15, "demo_page": 20, "g2_compare": 25, "docs_api": 8, "job_post_revops": 10, "webinar": 6},
+        "signals": [
+          {"account": "Northwind Traders", "type": "pricing_page", "day": 329},
+          {"account": "Northwind Traders", "type": "g2_compare", "day": 327},
+          {"account": "Northwind Traders", "type": "demo_page", "day": 326},
+          {"account": "Northwind Traders", "type": "webinar", "day": 300},
+          {"account": "Contoso Health", "type": "docs_api", "day": 325},
+          {"account": "Contoso Health", "type": "pricing_page", "day": 310},
+          {"account": "Contoso Health", "type": "pricing_page", "day": 305},
+          {"account": "Contoso Health", "type": "webinar", "day": 302},
+          {"account": "Fabrikam", "type": "job_post_revops", "day": 250}
+        ]
+      }
+    },
+    {
+      "op": "route_signals",
+      "label": "Route to Slack",
+      "help": "Dedupe events, apply the first matching rule, assign an owner (account owner first, then round-robin) and build the Slack alert.",
+      "input": {
+        "fallback_queue": "#gtm-unrouted",
+        "account_owners": {"Contoso Health": "maria"},
+        "rules": [
+          {"name": "enterprise-hot", "when": [{"field": "score", "op": "gte", "value": 50}, {"field": "segment", "op": "eq", "value": "enterprise"}], "pool": ["alex", "jordan"], "channel": "#ae-enterprise", "sla_minutes": 15},
+          {"name": "mid-market-pricing", "when": [{"field": "segment", "op": "in", "value": ["mid-market", "smb"]}, {"field": "page", "op": "contains", "value": "pricing"}], "pool": ["sam", "riley", "casey"], "channel": "#sdr-inbound", "sla_minutes": 30}
+        ],
+        "events": [
+          {"event_id": "evt_01", "account": "Northwind Traders", "segment": "enterprise", "type": "surge", "page": "/pricing", "score": 61.4},
+          {"event_id": "evt_02", "account": "Contoso Health", "segment": "enterprise", "type": "surge", "page": "/security", "score": 55},
+          {"event_id": "evt_02", "account": "Contoso Health", "segment": "enterprise", "type": "surge", "page": "/security", "score": 55},
+          {"event_id": "evt_03", "account": "Tailspin Toys", "segment": "smb", "type": "visit", "page": "/pricing", "score": 22},
+          {"event_id": "evt_04", "account": "Wide World Importers", "segment": "mid-market", "type": "visit", "page": "/pricing/compare", "score": 30},
+          {"event_id": "evt_05", "account": "Fabrikam", "segment": "enterprise", "type": "visit", "page": "/blog", "score": 12}
+        ]
+      }
+    }
+  ]
+}

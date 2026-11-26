@@ -1,0 +1,23 @@
+[package]
+name = "gtm-02-intent-router"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Turn buying signals into the right rep's Slack in minutes: account-level website reveal with privacy gates, time-decayed intent scores with surge detection, and first-match routing with round-robin and dedupe."
+repository = "https://github.com/braylo777/gtm-02-intent-router"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "gtm-02-intent-router"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "=1.0.154"
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+codegen-units = 1
